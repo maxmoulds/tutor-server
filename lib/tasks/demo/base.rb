@@ -123,56 +123,61 @@ class Demo::Base
       ]
   end
 
-  # Runs the given code in parallel processes
+  # Runs the given code block in parallel processes
   # Calling process must not be in a transaction
-  # Args should be Enumerables and will be passed to the given block in properly-sized slices
-  # You will still have to iterate through the yielded values
-  # The index for the first element in the original array is also passed in as the last argument
-  # Returns the PID's for the spawned processes
-  def in_parallel(*args, max_processes: nil, transaction: false)
-    arg_size = args.first.size
-    raise 'Arguments must have the same size' unless args.all?{ |arg| arg.size == arg_size }
+  # The index for the current element in the array is also passed to the block as the last argument
+  # Returns the PID/Status pairs for the processes after they all finish
+  def parallel_each(array, max_processes: nil, transaction: false)
+    @processes ||= []
 
-    # This is merely the maximum number of processes spawned for each call to this method
-    max_processes ||= Integer(ENV['DEMO_MAX_PROCESSES']) rescue 1
+    max_processes ||= Integer(ENV['DEMO_MAX_PROCESSES']) rescue 4
 
-    if arg_size == 0 || max_processes < 1
-      #log("Processes: 0 (inline processing) - Slice size: #{arg_size}")
+    if array.empty? || max_processes < 1
+      #log("Processes: 0 (inline processing) - Slice size: #{array.size}")
 
-      return yield *[args + [0]]
+      array.each_with_index{ |element, element_index| yield element, element_index }
+
+      return []
     end
+
+    # Use max_processes unless too few args given
+    num_processes = [array.size, max_processes].min
+
+    # Calculate slice_size
+    slice_size = (array.size/num_processes.to_f).ceil
+
+    # Adjust number of processes again if some process would receive an empty array
+    num_processes = (array.size/slice_size.to_f).ceil
+
+    sliced_array_with_index = array.each_slice(slice_size).with_index
 
     Rails.application.eager_load!
 
-    # Use max_processes unless too few args given
-    num_processes = [arg_size, max_processes].min
+    child_processes = sliced_array_with_index.map do |process_array, process_index|
+      element_index = process_index * slice_size
 
-    # Calculate slice_size
-    slice_size = (arg_size/num_processes.to_f).ceil
-
-    # Adjust number of processes again if some process would receive an empty array
-    num_processes = (arg_size/slice_size.to_f).ceil
-
-    sliced_args = args.map{ |arg| arg.each_slice(slice_size) }
-    process_args = 0.upto(num_processes - 1).map do |process_index|
-      sliced_args.map{ |sliced_arg| sliced_arg.next } + [process_index*slice_size]
-    end
-
-
-    child_processes = 0.upto(num_processes - 1).map do |process_index|
       Tutor.fork_with_connection do
         if transaction
           ActiveRecord::Base.transaction do
-            yield *process_args[process_index]
+            process_array.each do |element|
+              yield element, element_index
+
+              element_index += 1
+            end
           end
         else
-          yield *process_args[process_index]
+          process_array.each do |element|
+            yield element, element_index
+
+            element_index += 1
+          end
         end
       end
     end
 
-    @processes ||= []
     @processes += child_processes
+
+    wait_for_parallel_completion!
   end
 
   # Waits for all child processes to finish

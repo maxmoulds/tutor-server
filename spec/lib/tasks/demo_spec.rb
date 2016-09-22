@@ -16,14 +16,7 @@ RSpec.describe Demo, type: :routine, version: :v1, speed: :slow,
       fixtures_directory = File.join(File.dirname(__FILE__), '../../fixtures/demo')
 
       Demo::ContentConfiguration.with_config_directory(fixtures_directory) do
-        configuration = OpenStax::Exercises::V1.configuration
-        old_max_processes = ENV['DEMO_MAX_PROCESSES']
-        begin
-          ENV['DEMO_MAX_PROCESSES'] = '0'
-          expect(Demo::Content.call(print_logs: false).errors).to be_empty
-        ensure
-          ENV['DEMO_MAX_PROCESSES'] = old_max_processes
-        end
+        expect(Demo::Content.call(print_logs: false).errors).to be_empty
 
         expect(Demo::Tasks.call(print_logs: false).errors).to be_empty
 

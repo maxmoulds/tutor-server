@@ -14,29 +14,20 @@ class Demo::Work < Demo::Base
     set_print_logs(print_logs)
     set_random_seed(random_seed)
 
-    Demo::ContentConfiguration[config].each do | content |
-
-      in_parallel(content.assignments.reject(&:draft),
-                  transaction: true) do | assignments, initial_index |
-        assignments.each do | assignment |
-          work_tp_assignment(content, assignment) unless assignment.type == 'concept_coach'
-        end
+    parallel_each(Demo::ContentConfiguration[config], transaction: true) do | content, index |
+      content.assignments.reject(&:draft).each do | assignment |
+        work_tp_assignment(content, assignment) unless assignment.type == 'concept_coach'
       end
 
-      in_parallel(get_auto_assignments(content).flatten,
-                  transaction: true) do | auto_assignments, initial_index |
-        auto_assignments.each do | auto_assignment |
-          work_tp_assignment(content, auto_assignment) \
-            unless auto_assignment.type == 'concept_coach'
-        end
+      get_auto_assignments(content).flatten.each do | auto_assignment |
+        work_tp_assignment(content, auto_assignment) \
+          unless auto_assignment.type == 'concept_coach'
       end
 
-      in_parallel(content.course.students, transaction: true) do |students, initial_index|
-        students.each{ |student| work_cc_assignments(student) }
+      content.course.students.each do |student|
+        work_cc_assignments(student)
       end
     end
-
-    wait_for_parallel_completion
 
   end
 

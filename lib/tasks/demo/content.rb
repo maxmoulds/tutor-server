@@ -124,45 +124,28 @@ class Demo::Content < Demo::Base
     set_random_seed(random_seed)
 
     # Serial step
-    courses = []
-    ActiveRecord::Base.transaction do
-      setup_staff_user_accounts
-      Demo::ContentConfiguration[config].each do | content |
-        courses.push configure_course(content)
-      end
-    end
+    ActiveRecord::Base.transaction{ setup_staff_user_accounts }
 
     # Parallel step
-    in_parallel(Demo::ContentConfiguration[config], transaction: true) do |contents, idx_start|
+    parallel_each(Demo::ContentConfiguration[config], transaction: true) do | content, index |
+      course = configure_course(content)
 
-      index = idx_start
+      book = content.cnx_book(version)
 
-      contents.each do | content |
+      log("Starting book import for #{course.name} from #{content.archive_url_base}#{book}")
+      ecosystem = run(
+        :import_book,
+        book_cnx_id: book,
+        archive_url: content.archive_url_base,
+        reading_processing_instructions: content.reading_processing_instructions
+      ).outputs.ecosystem
 
-        book = content.cnx_book(version)
-        course = courses[index]
-        log("Starting book import for #{course.name} from #{
-            content.archive_url_base}#{book}")
-        ecosystem = run(
-          :import_book,
-          book_cnx_id: book,
-          archive_url: content.archive_url_base,
-          reading_processing_instructions: content.reading_processing_instructions
-        ).outputs.ecosystem
+      log("Book import complete")
+      run(:add_ecosystem, ecosystem: ecosystem, course: course)
 
-        log("Book import complete")
-        run(:add_ecosystem, ecosystem: ecosystem, course: course)
-
-        offering = find_or_create_catalog_offering(content, ecosystem)
-        run(:set_offering, entity_course: course, catalog_offering: offering)
-
-        index += 1
-
-      end # book
-
-    end # thread
-
-    wait_for_parallel_completion
+      offering = find_or_create_catalog_offering(content, ecosystem)
+      run(:set_offering, entity_course: course, catalog_offering: offering)
+    end
 
   end
 end
