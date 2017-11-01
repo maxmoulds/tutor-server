@@ -118,7 +118,7 @@ class Demo::Courses < Demo::Base
 
       run(:add_student, period: period, user: user, student_identifier: student_identifier) \
         unless run(:is_student, user: user, course: course,
-                                include_dropped_students: true).outputs.user_is_course_student
+                                include_dropped: true).outputs.user_is_course_student
     end
 
     (period_config.auto_students || 0).times do |sindex|
